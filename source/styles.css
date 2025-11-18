@@ -2,60 +2,22 @@
   box-sizing: border-box;
 }
 
+html, body {
+  height: 100%;
+}
+
 body {
-  margin: 0;
-  padding: 5vmin;
-  color: #fff;
-  font-family: system-ui;
-  background: black;
-  /* animation: colors 360s infinite both alternate; */
-}
-
-@keyframes colors {
-  0% { background: lch(50 100 0); }
-  20% { background: lch(50 100 70); }
-  40% { background: lch(50 100 140); }
-  60% { background: lch(50 100 210); }
-  80% { background: lch(50 100 280); }
-  100% { background: lch(50 100 360); }
-}
-
-main {
-  display: grid;
-  max-width: 900px; /* ideally should be divisible by 2 and 3 */
-  margin: 0 auto;
-  grid-template: repeat(4, 1fr) / repeat(3, 1fr);
-  gap: 0;
-  height: auto;
-  aspect-ratio: 3 / 4;
-
-  #controls { grid-column: span 3; }
-
-  canvas {
-    width: 100%;
-    height: 100%;
-    /* outline: 1px solid white; */
-  }
-}
-
-input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 3px;
-  background: white;
-  border-radius: 10px;
-  margin: 0;
-}
-
-label {
   display: flex;
+  justify-content: center;
   align-items: center;
-  gap: .5rem;
+  margin: 0;
+  color: #fff;
+  background: black;
+  overflow: hidden;
 }
 
-fieldset {
-  border: 0;
-  padding: 0;
-  margin: 0 auto 2em;
-  width: max-content;
+canvas {
+  display: block;
+  /* outline: 4px solid white; */
+  pointer-events: none;
 }

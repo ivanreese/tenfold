@@ -2,22 +2,27 @@
 const animate = true
 const cycleTime = 8 // how many seconds per anim loop
 const color = "#fff"
-
 const MAX_DPR = 2 // Limit the DPR so we don't burn too much time
+const padding = 40
 
 // ANIMATION PARAMS
-// let q = 0
-// let r = 0
-let strokeWidth = 0
+let q = 0
+let r = 0
 
 // HELPERS
 const PI = Math.PI
 const TAU = PI * 2
+
+const rand = (lo = -1, hi = 1) => denorm(Math.random(), lo, hi)
 const clamp = (v, lo = -1, hi = 1) => Math.max(lo, Math.min(hi, v))
 const norm = (n, lo = -1, hi = 1) => (n - lo) / (hi - lo)
 const denorm = (n, lo = -1, hi = 1) => n * (hi - lo) + lo
-const renorm = (n, lo = -1, hi = 1, LO = -1, HI = 1) => denorm(norm(n, lo, hi), LO, HI)
 const declip = (n, lo = 0, hi = 1) => denorm(norm(n), lo, hi)
+const renorm = (v, lo = -1, hi = 1, LO = -1, HI = 1, doClamp = false) => {
+  let n = norm(v, lo, hi)
+  if (doClamp) n = clamp(n, lo, hi)
+  return denorm(n, LO, HI)
+}
 
 class Averager {
   result = 0
@@ -37,22 +42,123 @@ class Averager {
   }
 }
 
-// CANVAS STUFF
-const canvases = Array.from(document.querySelectorAll(".char"))
-const ctxs = []
-let dpr = clamp(window.devicePixelRatio, 1, MAX_DPR)
-let w = canvases[0].offsetWidth * dpr
-let hw = w / 2
+// CANVAS /////////////////////////////////////////////////////////////////////////////////////////
+
+const canvas = document.querySelector("canvas")
+const ctx = canvas.getContext("2d", { alpha: true })
+let cssX // canvas top
+let cssY // canvas left
+let cssW // grid cell width
+let dpr
+let w // grid cell width
+let hw
+
+function resize() {
+  // This is the max area the canvas will be contained within
+  let iw = window.innerWidth - padding * 2
+  let ih = window.innerHeight - padding * 2
+
+  // This is the size of a grid cell in CSS pixels
+  cssW = Math.min(iw / 3, ih / 4)
+
+  // We need the half-width (hw) to be floored, so we sized things based on that
+  cssW = Math.floor(cssW / 2) * 2
+
+  canvas.style.width = cssW * 3 + "px"
+  canvas.style.height = cssW * 4 + "px"
+
+  // this is the top left corner of the canvas in CSS pixels
+  cssX = padding + (iw - cssW * 3) / 2
+  cssY = padding + (ih - cssW * 4) / 2
+
+  // Now calculate the pixel sizes within the canvas
+  dpr = clamp(Math.round(window.devicePixelRatio || 1), 1, MAX_DPR)
+  w = cssW * dpr // width
+  hw = w / 2 // half-width — we know this is an integer
+  canvas.width = w * 3
+  canvas.height = w * 4
+}
+resize()
+window.addEventListener("resize", resize)
+
+// x ranges from 0 to 3, y from 0 to 4
+const posToGridNorm = (x, y) => ({
+  x: renorm(x, cssX, cssX + cssW, 0, 1),
+  y: renorm(y, cssY, cssY + cssW, 0, 1),
+})
+
+const gridNormToIdx = (x, y) => {
+  x = Math.floor(x)
+  y = Math.floor(y)
+  if (x < 0 || y < 0 || x > 2 || y > 3) return -1
+  return 3 * Math.floor(y) + Math.floor(x)
+}
+
+let dragging = -1
+let closest
+let draggingType
+
+window.addEventListener("pointerdown", (e) => {
+  let { x, y } = posToGridNorm(e.clientX, e.clientY)
+
+  _x = Math.floor(x)
+  _y = Math.floor(y)
+
+  dragging = gridNormToIdx(x, y)
+  if (dragging < 0) return
+
+  // get the closest object
+  closest = null
+  let closestDist = 20 // need to be within this dist for the drag to count
+  for (let s of states) {
+    let dist = Math.hypot(denorm(x - _x) - s.x, denorm(y - _y) - s.y)
+    if (dist >= closestDist) continue
+    closest = s
+    closestDist = dist
+    draggingType = "canvas"
+  }
+  for (let s of states) {
+    let dist = Math.hypot(renorm(x, 1, 3, -1, 1) - s.q, denorm(y - _y) - s.r)
+    if (dist >= closestDist) continue
+    closest = s
+    closestDist = dist
+    draggingType = "param"
+  }
+})
+window.addEventListener("pointermove", (e) => {
+  if (dragging < 0) return
+  e.preventDefault() // Prevent unwanted text selection
+
+  let { x, y } = posToGridNorm(e.clientX, e.clientY)
+
+  if (closest) {
+    if (draggingType == "canvas") {
+      closest.x = denorm(x % 1)
+      closest.y = denorm(y % 1)
+    } else if (draggingType == "param") {
+      closest.q = renorm(x, 1, 3, -1, 1)
+      closest.r = denorm(y % 1)
+    }
+  }
+
+  // if (dragging == 5 || dragging == 6) {
+  // q = renorm(e.offsetX, (cw * 1) / 3, (cw * 3) / 3, -1, 1, true)
+  // r = renorm(e.offsetY, (ch * 1) / 4, (ch * 2) / 4, -1, 1, true)
+  // } else {
+  // }
+})
+window.addEventListener("pointerup", (e) => (dragging = -1))
+window.addEventListener("pointercancel", (e) => (dragging = -1))
 
 // DRAW FNS ///////////////////////////////////////////////////////////////////////////////////////
 
-const circle = (ctx, q, r, s, t) => {
+const circle = (ctx, q, r, t) => {
   ctx.circle(Math.cos(t * TAU) * q * 0.25, Math.sin(t * TAU) * r * 0.25, 0.1)
 }
 
-const catenoid = (ctx, q, r, s, t) => {
-  let U = Math.round(36 + Math.round(ctx.x * 16) * 2) // segments around the circle
-  let V = Math.round(10 + ctx.y * 5) // segments along the curve
+const catenoid = (ctx, q, r, t, X, Y) => {
+  let U = Math.round(36 + Math.round(X * 16) * 2) // segments around the circle
+  let V = Math.round(10 + Y) // segments along the curve
   let rad = 0.1 // shift the curve away from the y axis
   let a = r + 1.2 // factor for the catenary curve
   let tilt = q * 0.2 + 0.2 // rotation around the x axis
@@ -97,15 +203,6 @@ const catenoid = (ctx, q, r, s, t) => {
     }
   }
 
-  // for (let u = 0; u < U; u++) {
-  //   for (let v = 0; v <= V; v++) {
-  //     let y = denorm(v / V)
-  //     let x =
-  //     let z = 0
-
-  //   }
-  // }
-
   // Normalize points to clip space
   for (let p of points) {
     p.x = renorm(p.x, xmin, xmax)
@@ -119,57 +216,50 @@ const catenoid = (ctx, q, r, s, t) => {
 
     // next point around the circle (wrapping)
     let b = points[(i + (V + 1)) % points.length]
-    ctx.moveTo(a.x, a.y)
-    ctx.lineTo(b.x, b.y)
+    ctx.move(a.x, a.y)
+    ctx.line(b.x, b.y)
 
     // next point along the curve (not wrapping)
     if ((i + 1) % (V + 1) != 0) {
       let b = points[i + 1]
-      ctx.moveTo(a.x, a.y)
-      ctx.lineTo(b.x, b.y)
+      ctx.move(a.x, a.y)
+      ctx.line(b.x, b.y)
     }
   }
 }
 
-const doubleyou = (ctx, q, r, s, t) => {
-  // t goes from 0 to 1
-  t = denorm((t + 1.5) % 1) // -1 to 1
+const doubleyou = (ctx, q, r, t, X, Y) => {
+  t = denorm((t + 1.5) % 1) // -1 to 1, phase shifted
   t = Math.sign(t) * Math.abs(t) ** 4 // -1 to 1, squished
-  let R = declip(r, 0.2, 2)
-  let m = declip(t, 1, -2) * R
-  let M = declip(t, 2, -1) * R
-
-  for (let x = m; x <= M; x += 0.01) {
-    let y = -Math.cos((x * TAU * 2) / R) * 0.8 + 0.2
-    if (x == m) ctx.moveTo(x, y)
-    else ctx.lineTo(x, y)
-  }
-  let J = declip(q, 0.05, 1)
+  let J = declip(q, 0.05, 1) // how many wiggles
+  let R = declip(r, 0.2, 2) // how tight are the wiggles
+  let m = declip(t, 1, -2) * R // wiggle start
+  let M = declip(t, 2, -1) * R // wiggle end
   for (let j = 0; j < 1; j += J) {
+    ctx.begin()
     for (let x = m; x <= M; x += 0.01) {
       let frac = renorm(x, m, M, 0, 1)
       let y = -Math.cos((x * TAU * 2) / R) * 0.8 - declip(Math.cos(TAU * frac + PI)) * 0.4 * j + 0.2
-      if (x == m) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
+      if (x < -1 || x > 1) continue
+      ctx.line(x, y)
     }
   }
 }
 
-const cross = (ctx, q, r, s, t) => {
-  let angle = r * TAU
-  ctx.rotate(angle)
+const cross = (ctx, q, r, t, X, Y) => {
+  // let angle = r * TAU
+  // ctx.rotate(angle)
   let d = q
-  ctx.moveTo(-d, -d)
-  ctx.lineTo(+d, +d)
-  ctx.moveTo(+d, -d)
-  ctx.lineTo(-d, +d)
-  ctx.stroke()
+  ctx.move(-d, -d)
+  ctx.line(+d, +d)
+  ctx.move(+d, -d)
+  ctx.line(-d, +d)
 }
 
 const enca = new OffscreenCanvas(1, 1)
 const enc = enca.getContext("2d", { alpha: true, willReadFrequently: true })
 
-const en = (ctx, q, r, s, t) => {
+const en = (ctx, q, r, t, x1, y1) => {
   const steps = Math.round(denorm(declip(q) ** 4, 3, 100))
   enca.width = steps
   enca.height = steps
@@ -185,20 +275,14 @@ const en = (ctx, q, r, s, t) => {
       if (kData[(x + y * steps) * 4] >= 128) {
         let X = renorm(x, 0, steps)
         let Y = renorm(y, 0, steps)
-        ctx.moveTo(X, Y)
-        ctx.lineTo(X + ctx.x * 0.2 + 0.1, Y + ctx.y * 0.2 + 0.1)
+        ctx.move(X, Y)
+        ctx.line(X + x1 * 0.2 + 0.1, Y + y1 * 0.2 + 0.1)
       }
     }
   }
 }
 
-const kay = (ctx, q, r, s, t, params) => {
-  // if (params.someDep) {
-  //   return {
-  //     plz: "cheeseburger"
-  //   }
-  // }
-
+const kay = (ctx, q, r, t, X, Y) => {
   r = declip(r, 0.01, 0.1) + Math.sin(t * TAU * 2) * 0.01
 
   const steps = Math.round(declip(q, 5, 30))
@@ -217,224 +301,105 @@ const kay = (ctx, q, r, s, t, params) => {
   }
 }
 
-const ess = {
-  bits: [],
-  draw: (bits, w, t) => {
-    for (let i = 0; i < w * w; i++) {
-      bits[i] = Math.random() > 0.5
-    }
-  },
-}
-
-// CONTROLS ///////////////////////////////////////////////////////////////////////////////////////
-
-// KAOSS PAD
-let controls = document.querySelector("#controls")
-let ctrls = controls.getContext("2d", { alpha: true })
-
-controls.onpointerdown = (e) => {
-  let ctx
-  closest = Infinity
-
-  let q = clamp(renorm(e.offsetX, 0, controls.offsetWidth, 0, 3) - 2)
-  let r = clamp(renorm(e.offsetY, 0, controls.offsetHeight))
-
-  for (let c of ctxs) {
-    let dist = Math.hypot(q - c.q, r - c.r)
-    if (dist < closest) {
-      ctx = c
-      closest = dist
-    }
-  }
-
-  controls.onpointermove = (e) => {
-    e.preventDefault() // Prevent unwanted text selection
-    ctx.q = clamp(renorm(e.offsetX, 0, controls.offsetWidth, 0, 3) - 2) // this is subtle, sorry
-    ctx.r = clamp(renorm(e.offsetY, 0, controls.offsetHeight))
-
-    if (!animate) requestAnimationFrame(update)
-  }
-  window.onpointerup = () => {
-    controls.onpointermove = null
-    window.onpointerup = null
-  }
-}
-
-// STROKE SLIDER
-strokeSlider = document.querySelector("[type=range]")
-strokeSlider.oninput = (e) => {
-  strokeWidth = +strokeSlider.value
-  if (!animate) requestAnimationFrame(update)
-}
-strokeSlider.value = strokeWidth
-
 // ENGINE /////////////////////////////////////////////////////////////////////////////////////////
 
-const defns = [catenoid, en, kay, ess, doubleyou, cross, cross, cross, cross]
+const defns = [catenoid, en, kay, cross, doubleyou, cross, cross, cross, cross]
+const states = []
 
-for (let canvas of canvases) {
-  let i = ctxs.length
-  let ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: true })
-  ctxs.push(ctx)
-
-  // TODO: Proxy??
-  ctx.circle = (x, y, r) => {
-    ctx.beginPath()
-    ctx.arc(x, y, r, 0, TAU)
-    ctx.stroke()
-  }
-
-  // TODO: this needs to go somewhere
-  ctx.x = Math.random() * 2 - 1
-  ctx.y = Math.random() * 2 - 1
-  ctx.q = renorm(i, -1, 9, -1, 1)
-  ctx.r = Math.random() * 2 - 1
-  ctx.dist = 0
-
-  // TODO: Visual feedback?
-  canvas.onpointerdown = () => {
-    canvas.onpointermove = (e) => {
-      ctx.x = clamp(renorm(e.offsetX, 0, hw))
-      ctx.y = clamp(renorm(e.offsetY, 0, hw))
-      if (!animate) requestAnimationFrame(update)
-    }
-    window.onpointerup = () => {
-      canvas.onpointermove = null
-      window.onpointerup = null
-    }
-  }
-
-  canvas.addEventListener("pointermove", (e) => {
-    let x = clamp(renorm(e.offsetX, 0, hw))
-    let y = clamp(renorm(e.offsetY, 0, hw))
-    ctx.dist = 1 - Math.hypot(x - ctx.x, y - ctx.y)
-  })
+// Initialize the param state for each letter
+for (let i = 0; i < 9; i++) {
+  let s = (states[i] = {})
+  s.q = renorm(i, -1, 9)
+  s.r = 0
+  s.x = 0
+  s.y = 0
 }
 
-function resize() {
-  // CHARS
-  dpr = clamp(window.devicePixelRatio, 1, MAX_DPR)
-  w = canvases[0].offsetWidth * dpr
-  hw = w / 2
-  for (let canvas of canvases) canvas.width = canvas.height = w
+let newPath = true
 
-  // BITS
-  for (let def of defns) {
-    if (def.bits) {
-      def._bytes = new Uint8ClampedArray(w * w * 4).fill(255)
-      def._imgData = new ImageData(def._bytes, w)
+const proxy = {
+  begin() {
+    newPath = true
+  },
+  move(x, y) {
+    ctx.moveTo(x, y)
+    newPath = false
+  },
+  line(x, y) {
+    if (newPath) {
+      ctx.moveTo(x, y)
+      newPath = false
+    } else {
+      ctx.lineTo(x, y)
     }
-    def._timer ??= new Averager(30)
-  }
-
-  // CONTROLS
-  controls.width = w * 3
-  controls.height = w
-  if (!animate) requestAnimationFrame(update)
-}
-
-function getFn(def) {
-  if (def instanceof Function) return def
-  if (!(def?.draw instanceof Function)) throw new Error("Invalid character definition")
-  return def.draw
+  },
+  rect(x, y, w, h) {
+    ctx.moveTo(x, y)
+    ctx.rect(x, y, w, h)
+    newPath = true
+  },
+  circle(x, y, r) {
+    proxy.arc(x, y, r)
+  },
+  arc(x, y, r, start = 0, end = TAU) {
+    ctx.moveTo(x + r, y)
+    ctx.arc(x, y, r, start, end)
+    newPath = true
+  },
 }
 
 let mappers = Array.from("INKSWITCH")
 
 function update(ms) {
-  if (animate) requestAnimationFrame(update)
+  requestAnimationFrame(update)
   if (document.hidden) return
 
   let t = (ms / 1000 / cycleTime) % 1
 
-  ctrls.clearRect(0, 0, w * 3, w)
-  const ctrlsImageData = ctrls.getImageData(0, 0, w * 3, w)
-  const ctrlsImageDataData = ctrlsImageData.data
+  ctx.clearRect(0, 0, w * 3, w * 4)
 
-  for (let i = 0; i < defns.length; i++) {
+  for (let i = 0; i < 9; i++) {
     let start = performance.now()
-    let def = defns[i]
-    let ctx = ctxs[i]
+    let fn = defns[i]
+    let s = states[i]
 
-    if (def.bits) {
-      def.draw(def.bits, w, t)
-      for (let i = 0; i < def.bits.length; i++) def._bytes[i * 4] = def._bytes[i * 4 + 1] = def._bytes[i * 4 + 2] = Math.ceil(def.bits[i]) * 255
-      ctx.putImageData(def._imgData, 0, 0)
-    } else {
-      let fn = getFn(def)
+    // These get reset sporadically, so we just set them every time we draw
+    // ctx.fillStyle = "#000"
+    ctx.strokeStyle = color
+    ctx.lineJoin = ctx.lineCap = "round"
+    ctx.lineWidth = (dpr * 4) / w
 
-      // These get reset sporadically, so we just set them every time we draw
-      // ctx.fillStyle = "#000"
-      ctx.strokeStyle = "#fff"
-      ctx.lineJoin = ctx.lineCap = "round"
-      ctx.lineWidth = (strokeWidth * 50 + 8) / w
+    // Clear and set up transform
+    ctx.resetTransform()
+    ctx.scale(hw, hw) // 0 to 2
+    ctx.translate(1, 1) // -1 to 1
+    ctx.scale(1 - ctx.lineWidth, 1 - ctx.lineWidth) // Shrink slightly so that a stroke drawn at the edge doesn't get cut off
+    let x = Math.floor(i % 3)
+    let y = Math.floor(i / 3)
+    y = y > 0 ? y + 1 : y
+    ctx.translate(x * 2, y * 2) // center on the current grid cell
 
-      // Clear and set up transform
-      ctx.resetTransform()
-      ctx.clearRect(0, 0, w, w) // clear the canvas now, before we scale it
-      ctx.scale(hw, hw) // 0 to 2
-      ctx.translate(1, 1) // -1 to 1
-      ctx.scale(1 - ctx.lineWidth, 1 - ctx.lineWidth) // Shrink slightly so that a stroke drawn at the edge doesn't get cut off
+    // Draw the character!
+    newPath = true
+    ctx.beginPath()
+    ctx.save()
+    fn(proxy, s.q, s.r, t, s.x, s.y)
+    ctx.stroke()
 
-      // Draw the character!
-      ctx.beginPath()
-      ctx.save()
-      fn(ctx, ctx.q, ctx.r, 0, t)
-      ctx.stroke()
-      ctx.restore()
+    // circles in canvas
+    ctx.beginPath()
+    proxy.circle(s.x, s.y, 0.1)
+    ctx.fill()
+    ctx.restore()
 
-      ctx.fillStyle = color
-      ctx.textAlign = "end"
-      ctx.font = `.07px monospace`
-      // ctx.fillText(`Q${(ctx.q * 50 + 50) | 0} R${(ctx.r * 50 + 50) | 0} X${(ctx.x * 50 + 50) | 0} Y${(ctx.y * 50 + 50) | 0}`, 1, 1)
+    // param circles
+    ctx.resetTransform()
+    ctx.scale(w, w) // note! scale is doubled compared to other stuffs
+    ctx.beginPath()
+    proxy.circle(declip(s.q, 1, 3), declip(s.r, 1, 2), 0.1 / 2)
+    ctx.fill()
 
-      ctx.beginPath()
-      ctx.fillStyle = `hsla(0 0% 100% / ${ctx.dist})`
-      ctx.arc(ctx.x, ctx.y, 0.03, 0, TAU)
-      ctx.fill()
-      ctx.beginPath()
-
-      ctrls.beginPath()
-      ctrls.fillStyle = color
-      // ctrls.fillRect(w + ctx.x * w * 2, ctx.y * w, 10, 10)
-
-      ctrls.beginPath()
-      // ctrls.arc(declip(ctx.q, w, w * 3), declip(ctx.r, 0, w), 8, 0, TAU)
-      if (ctx.q != null) {
-        let x = declip(ctx.q, w, w * 3)
-        let y = declip(ctx.r, 0, w)
-        let p = 40
-        ctrls.beginPath()
-        let x1 = x + declip(ctx.q, p / 2, p)
-        let y1 = y - declip(ctx.r, p / 2, p)
-        let x2 = x - declip(ctx.x, p / 2, p)
-        let y2 = y + declip(ctx.y, p / 2, p)
-
-        ctrls.moveTo(x, y1)
-        ctrls.lineTo(x1, y)
-        ctrls.lineTo(x, y2)
-        ctrls.lineTo(x2, y)
-        ctrls.lineTo(x, y1)
-        ctrls.fill()
-        ctrls.beginPath()
-        ctrls.font = `${dpr * 12}px monospace`
-        ctrls.textAlign = "center"
-        ctrls.fillStyle = "#000"
-        ctrls.fillText(mappers[i], (x1 + x2) / 2, (y1 + y2) / 2 + 5)
-      }
-      // ctrls.fill()
-    }
-
-    let cost = def._timer.add(performance.now() - start)
-
-    // Force the image to be pure black-and-white (todo: we could just disallow setting colors, and ignore AA — would be faster)
-    // const imgData = ctx.getImageData(0, 0, w, w)
-    // const data = imgData.data
-    // for (let i = 0; i < data.length; i += 4) {
-    //   // data[i] = data[i + 1] = data[i + 2] = data[i] < 127 ? 0 : 255
-    //   ctrlsImageDataData[i] = ctrlsImageDataData[i + 1] = ctrlsImageDataData[i + 2] = data[i]
-    //   ctrlsImageDataData[i + 3] = 255
-    // }
+    // let cost = def._timer.add(performance.now() - start)
 
     // If the draw function took too long, apply shame
     // if (cost > 3) {
@@ -446,54 +411,34 @@ function update(ms) {
     // }
   }
 
-  // ctrls.putImageData(ctrlsImageData, 220, 10)
-
   // DRAW THE CONTROLS
-
-  // Basic state
+  ctx.resetTransform()
 
   // &
-  ctrls.lineWidth = 0.5
-  ctrls.fillStyle = color
-  ctrls.textAlign = "center"
-  ctrls.font = `100 ${w}px monospace`
-  ctrls.fillText("&", hw, hw * 1.7)
+  ctx.fillStyle = color
+  ctx.textAlign = "center"
+  ctx.font = `100 ${w}px monospace`
+  ctx.fillText("&", hw, w + hw * 1.7)
 
   // Kaoss pad
-  ctrls.beginPath()
-  ctrls.strokeStyle = color
-  ctrls.rect(w, 0, w * 2, w)
-  ctrls.stroke()
-
-  // Kaoss Arm
-  // ctrls.strokeStyle = color
-  // ctrls.lineWidth = 36
-  // ctrls.beginPath()
-  // let ax = declip(q, w, w * 3)
-  // let ay = declip(r, 0, w)
-  // ctrls.moveTo(w * 1.5 - ax, w * 0.95 - ay)
-  // ctrls.lineTo(ax, ay, 10, 0, TAU)
-  // ctrls.stroke()
-
-  // Kaoss stats
-  // ctrls.fillStyle = color
-  // ctrls.textAlign = "end"
-  // ctrls.font = `${dpr * 12}px monospace`
-  // ctrls.fillText(`q: ${q.toFixed(1)}  r: ${r.toFixed(1)}`, w * 2.99, w * 0.99)
+  ctx.beginPath()
+  ctx.lineWidth = 2 * dpr
+  ctx.strokeStyle = "#fff"
+  ctx.rect(w + 2, w + 2, w * 2 - 4, w - 4)
+  ctx.stroke()
 
   // Clock
   {
-    let x = w + t * w * 2
-    ctrls.beginPath()
-    ctrls.lineWidth = 2
-    ctrls.moveTo(x, w - 30)
-    ctrls.lineTo(x, w)
-    ctrls.stroke()
+    ctx.beginPath()
+    ctx.lineWidth = 2 * dpr
+    let x = denorm(t, w, w * 3)
+    let y = w * 2
+    ctx.moveTo(x, y)
+    ctx.lineTo(x, y - 50)
+    ctx.stroke()
   }
 }
 
 // INIT
 
-resize()
-window.addEventListener("resize", resize)
-if (animate) requestAnimationFrame(update)
+requestAnimationFrame(update)
