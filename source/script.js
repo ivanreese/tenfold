@@ -6,8 +6,8 @@ const color = "#fff"
 const MAX_DPR = 2 // Limit the DPR so we don't burn too much time
 
 // ANIMATION PARAMS
-let q = 0
-let r = 0
+// let q = 0
+// let r = 0
 let strokeWidth = 0
 
 // HELPERS
@@ -233,10 +233,25 @@ let controls = document.querySelector("#controls")
 let ctrls = controls.getContext("2d", { alpha: true })
 
 controls.onpointerdown = (e) => {
+  let ctx
+  closest = Infinity
+
+  let q = clamp(renorm(e.offsetX, 0, controls.offsetWidth, 0, 3) - 2)
+  let r = clamp(renorm(e.offsetY, 0, controls.offsetHeight))
+
+  for (let c of ctxs) {
+    let dist = Math.hypot(q - c.q, r - c.r)
+    if (dist < closest) {
+      ctx = c
+      closest = dist
+    }
+  }
+
   controls.onpointermove = (e) => {
     e.preventDefault() // Prevent unwanted text selection
-    q = clamp(renorm(e.offsetX, 0, controls.offsetWidth, 0, 3) - 2) // this is subtle, sorry
-    r = clamp(renorm(e.offsetY, 0, controls.offsetHeight))
+    ctx.q = clamp(renorm(e.offsetX, 0, controls.offsetWidth, 0, 3) - 2) // this is subtle, sorry
+    ctx.r = clamp(renorm(e.offsetY, 0, controls.offsetHeight))
+
     if (!animate) requestAnimationFrame(update)
   }
   window.onpointerup = () => {
@@ -258,6 +273,7 @@ strokeSlider.value = strokeWidth
 const defns = [catenoid, en, kay, ess, doubleyou, cross, cross, cross, cross]
 
 for (let canvas of canvases) {
+  let i = ctxs.length
   let ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: true })
   ctxs.push(ctx)
 
@@ -269,15 +285,17 @@ for (let canvas of canvases) {
   }
 
   // TODO: this needs to go somewhere
-  ctx.x = 0
-  ctx.y = 0
+  ctx.x = Math.random() * 2 - 1
+  ctx.y = Math.random() * 2 - 1
+  ctx.q = renorm(i, -1, 9, -1, 1)
+  ctx.r = Math.random() * 2 - 1
+  ctx.dist = 0
 
   // TODO: Visual feedback?
   canvas.onpointerdown = () => {
     canvas.onpointermove = (e) => {
       ctx.x = clamp(renorm(e.offsetX, 0, hw))
       ctx.y = clamp(renorm(e.offsetY, 0, hw))
-      console.log(ctx.x)
       if (!animate) requestAnimationFrame(update)
     }
     window.onpointerup = () => {
@@ -285,6 +303,12 @@ for (let canvas of canvases) {
       window.onpointerup = null
     }
   }
+
+  canvas.addEventListener("pointermove", (e) => {
+    let x = clamp(renorm(e.offsetX, 0, hw))
+    let y = clamp(renorm(e.offsetY, 0, hw))
+    ctx.dist = 1 - Math.hypot(x - ctx.x, y - ctx.y)
+  })
 }
 
 function resize() {
@@ -315,6 +339,8 @@ function getFn(def) {
   return def.draw
 }
 
+let mappers = Array.from("INKSWITCH")
+
 function update(ms) {
   if (animate) requestAnimationFrame(update)
   if (document.hidden) return
@@ -339,7 +365,7 @@ function update(ms) {
 
       // These get reset sporadically, so we just set them every time we draw
       // ctx.fillStyle = "#000"
-      ctx.strokeStyle = color
+      ctx.strokeStyle = "#fff"
       ctx.lineJoin = ctx.lineCap = "round"
       ctx.lineWidth = (strokeWidth * 50 + 8) / w
 
@@ -353,39 +379,81 @@ function update(ms) {
       // Draw the character!
       ctx.beginPath()
       ctx.save()
-      fn(ctx, q, r, 0, t)
+      fn(ctx, ctx.q, ctx.r, 0, t)
       ctx.stroke()
       ctx.restore()
+
+      ctx.fillStyle = color
+      ctx.textAlign = "end"
+      ctx.font = `.07px monospace`
+      // ctx.fillText(`Q${(ctx.q * 50 + 50) | 0} R${(ctx.r * 50 + 50) | 0} X${(ctx.x * 50 + 50) | 0} Y${(ctx.y * 50 + 50) | 0}`, 1, 1)
+
+      ctx.beginPath()
+      ctx.fillStyle = `hsla(0 0% 100% / ${ctx.dist})`
+      ctx.arc(ctx.x, ctx.y, 0.03, 0, TAU)
+      ctx.fill()
+      ctx.beginPath()
+
+      ctrls.beginPath()
+      ctrls.fillStyle = color
+      // ctrls.fillRect(w + ctx.x * w * 2, ctx.y * w, 10, 10)
+
+      ctrls.beginPath()
+      // ctrls.arc(declip(ctx.q, w, w * 3), declip(ctx.r, 0, w), 8, 0, TAU)
+      if (ctx.q != null) {
+        let x = declip(ctx.q, w, w * 3)
+        let y = declip(ctx.r, 0, w)
+        let p = 40
+        ctrls.beginPath()
+        let x1 = x + declip(ctx.q, p / 2, p)
+        let y1 = y - declip(ctx.r, p / 2, p)
+        let x2 = x - declip(ctx.x, p / 2, p)
+        let y2 = y + declip(ctx.y, p / 2, p)
+
+        ctrls.moveTo(x, y1)
+        ctrls.lineTo(x1, y)
+        ctrls.lineTo(x, y2)
+        ctrls.lineTo(x2, y)
+        ctrls.lineTo(x, y1)
+        ctrls.fill()
+        ctrls.beginPath()
+        ctrls.font = `${dpr * 12}px monospace`
+        ctrls.textAlign = "center"
+        ctrls.fillStyle = "#000"
+        ctrls.fillText(mappers[i], (x1 + x2) / 2, (y1 + y2) / 2 + 5)
+      }
+      // ctrls.fill()
     }
 
     let cost = def._timer.add(performance.now() - start)
 
     // Force the image to be pure black-and-white (todo: we could just disallow setting colors, and ignore AA — would be faster)
-    const imgData = ctx.getImageData(0, 0, w, w)
-    const data = imgData.data
-    for (let i = 0; i < data.length; i += 4) {
-      // data[i] = data[i + 1] = data[i + 2] = data[i] < 127 ? 0 : 255
-      ctrlsImageDataData[i] = ctrlsImageDataData[i + 1] = ctrlsImageDataData[i + 2] = data[i]
-      ctrlsImageDataData[i + 3] = 255
-    }
+    // const imgData = ctx.getImageData(0, 0, w, w)
+    // const data = imgData.data
+    // for (let i = 0; i < data.length; i += 4) {
+    //   // data[i] = data[i + 1] = data[i + 2] = data[i] < 127 ? 0 : 255
+    //   ctrlsImageDataData[i] = ctrlsImageDataData[i + 1] = ctrlsImageDataData[i + 2] = data[i]
+    //   ctrlsImageDataData[i + 3] = 255
+    // }
 
     // If the draw function took too long, apply shame
-    if (cost > 3) {
-      ctx.resetTransform()
-      ctx.fillStyle = "#f00"
-      ctx.textAlign = "end"
-      ctx.font = `${dpr * 16}px monospace`
-      ctx.fillText(Math.round(cost), w * 0.99, w * 0.05)
-    }
+    // if (cost > 3) {
+    //   ctx.resetTransform()
+    //   ctx.fillStyle = "#f00"
+    //   ctx.textAlign = "end"
+    //   ctx.font = `${dpr * 16}px monospace`
+    //   ctx.fillText(Math.round(cost), w * 0.99, w * 0.05)
+    // }
   }
 
-  ctrls.putImageData(ctrlsImageData, 220, 10)
+  // ctrls.putImageData(ctrlsImageData, 220, 10)
 
   // DRAW THE CONTROLS
 
   // Basic state
 
   // &
+  ctrls.lineWidth = 0.5
   ctrls.fillStyle = color
   ctrls.textAlign = "center"
   ctrls.font = `100 ${w}px monospace`
@@ -393,31 +461,35 @@ function update(ms) {
 
   // Kaoss pad
   ctrls.beginPath()
-  ctrls.strokeStyle = "#fff"
+  ctrls.strokeStyle = color
   ctrls.rect(w, 0, w * 2, w)
   ctrls.stroke()
 
   // Kaoss Arm
-  ctrls.strokeStyle = color
-  ctrls.lineWidth = 36
-  ctrls.beginPath()
-  let ax = declip(q, w, w * 3)
-  let ay = declip(r, 0, w)
-  ctrls.moveTo(w * 1.5 - ax, w * 0.95 - ay)
-  ctrls.lineTo(ax, ay, 10, 0, TAU)
-  ctrls.stroke()
+  // ctrls.strokeStyle = color
+  // ctrls.lineWidth = 36
+  // ctrls.beginPath()
+  // let ax = declip(q, w, w * 3)
+  // let ay = declip(r, 0, w)
+  // ctrls.moveTo(w * 1.5 - ax, w * 0.95 - ay)
+  // ctrls.lineTo(ax, ay, 10, 0, TAU)
+  // ctrls.stroke()
 
   // Kaoss stats
-  ctrls.fillStyle = color
-  ctrls.textAlign = "end"
-  ctrls.font = `${dpr * 12}px monospace`
-  ctrls.fillText(`q: ${q.toFixed(1)}  r: ${r.toFixed(1)}`, w * 2.99, w * 0.99)
+  // ctrls.fillStyle = color
+  // ctrls.textAlign = "end"
+  // ctrls.font = `${dpr * 12}px monospace`
+  // ctrls.fillText(`q: ${q.toFixed(1)}  r: ${r.toFixed(1)}`, w * 2.99, w * 0.99)
 
   // Clock
-  ctrls.beginPath()
-  ctrls.lineWidth = 4
-  ctrls.arc(w * 3 - 30, 30, 20, 0, TAU * t)
-  ctrls.stroke()
+  {
+    let x = w + t * w * 2
+    ctrls.beginPath()
+    ctrls.lineWidth = 2
+    ctrls.moveTo(x, w - 30)
+    ctrls.lineTo(x, w)
+    ctrls.stroke()
+  }
 }
 
 // INIT
