@@ -19,5 +19,4 @@ body {
 canvas {
   display: block;
   /* outline: 4px solid white; */
-  pointer-events: none;
 }
