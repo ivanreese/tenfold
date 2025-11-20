@@ -16,6 +16,8 @@ const allLetters = [
 // including references (by array index) to functions inside allLetters.
 const states = []
 
+let currentlyEditingIdx = 0
+
 // CONFIG
 const thick = 2 // css pixels
 const cycleTime = 8 // how many seconds per anim loop
@@ -23,8 +25,8 @@ const color = "#fff"
 const errColor = "#f00"
 const MAX_DPR = 2 // Limit the DPR so we don't burn too much time
 // ugh this shit aint resolution independent what a hack
-const padding = 40
-const gap = 20
+const padding = 30
+const gap = 30
 const clockWaveHeight = 20
 
 // ANIMATION STATE
@@ -162,8 +164,8 @@ canvas.addEventListener("pointerdown", (e) => {
   if (lxInside && ly > 1 && R != 1) {
     if (R > 0) i -= 3
     let s = states[i]
-    let d = Math.abs(denorm(lx)) // dist from center
-    if (d > 0.1 && d < 0.35) s.letterIdx = mod(s.letterIdx + (lx < 0.5 ? -1 : 1), allLetters[i].length)
+    if (lx < 0.33) s.letterIdx = mod(s.letterIdx + (lx < 0.17 ? -1 : 1), allLetters[i].length)
+    if (lx > 0.95) currentlyEditingIdx = i
     return
   }
 
@@ -339,7 +341,7 @@ const api = {
 // Initialize the param state for each letter
 for (let i = 0; i < 9; i++) {
   let s = (states[i] = {})
-  s.letterIdx = allLetters[i].length - 1
+  s.letterIdx = 0
   s.q = renorm(i, 0, 8, -1, 1)
   s.r = 0
   s.x = 0
@@ -447,17 +449,23 @@ function update(ms) {
       let charHeight = 11 * scaleFix // this font is weird
       let labelText = mappers[i] + states[i].letterIdx.toString().padStart(2, 0)
       let labelWidth = charWidth * labelText.length
-      let x = cssW / 2
-      let y = cssW + gap / 2 - charHeight / 2
+      let x = 17 * scaleFix + labelWidth / 2
+      let y = cssW + gap / 2
       ctx.beginPath()
-      api.text(labelText, x - labelWidth / 2, y - scaleFix, 16 * scaleFix, charWidth)
-      api.move(x - 26 * scaleFix, y + 0)
-      api.line(x - 32 * scaleFix, y + charHeight / 2)
-      api.line(x - 26 * scaleFix, y + charHeight)
-      api.move(x + 26 * scaleFix, y + 0)
-      api.line(x + 32 * scaleFix, y + charHeight / 2)
-      api.line(x + 26 * scaleFix, y + charHeight)
+      api.text(labelText, x - labelWidth / 2, y - scaleFix - charHeight / 2, 16 * scaleFix, charWidth)
+      api.move(x - 26 * scaleFix, y - charHeight / 2)
+      api.line(x - 32 * scaleFix, y + 0)
+      api.line(x - 26 * scaleFix, y + charHeight / 2)
+      api.move(x + 26 * scaleFix, y - charHeight / 2)
+      api.line(x + 32 * scaleFix, y + 0)
+      api.line(x + 26 * scaleFix, y + charHeight / 2)
       ctx.stroke()
+
+      // edit & fork
+      ctx.beginPath()
+      api.circle(cssW - 6 * scaleFix, y, 6 * scaleFix)
+      if (currentlyEditingIdx == i) ctx.fill()
+      else ctx.stroke()
     }
   }
 
